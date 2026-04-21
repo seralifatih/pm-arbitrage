@@ -1,0 +1,5 @@
+apify-client
+httpx
+rapidfuzz
+pydantic>=2.0
+python-dateutil

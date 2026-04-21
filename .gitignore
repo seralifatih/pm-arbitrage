@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+venv/
+env/
+.venv/
+.env
+
+# Apify
+storage/
+apify_storage/
+crawlee_storage/
+.apify/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local plugins / agent scaffolding (not part of actor)
+.agents/
+.codex/
+.codex-plugin/
+.claude-plugin/
+
+# Claude tooling — keep only CLAUDE.md spec, hide the rest
+.claude/*
+!.claude/CLAUDE.md

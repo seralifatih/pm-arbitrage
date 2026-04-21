@@ -1,0 +1,62 @@
+[
+  {
+    "conditionId": "0xabc001",
+    "slug": "fed-rate-cut-june-2025",
+    "question": "Will the Fed cut rates at the June 2025 FOMC meeting?",
+    "endDate": "2025-06-18T00:00:00Z",
+    "active": true,
+    "outcomes": ["Yes", "No"],
+    "outcomePrices": ["0.56", "0.44"],
+    "volume": 1240500,
+    "liquidity": 87300,
+    "clobTokenIds": ["token_yes_001", "token_no_001"]
+  },
+  {
+    "conditionId": "0xabc002",
+    "slug": "btc-100k-end-2025",
+    "question": "Will BTC hit $100k before end of 2025?",
+    "endDate": "2025-12-31T23:59:59Z",
+    "active": true,
+    "outcomes": ["Yes", "No"],
+    "outcomePrices": ["0.38", "0.62"],
+    "volume": 3200000,
+    "liquidity": 145000,
+    "clobTokenIds": ["token_yes_002", "token_no_002"]
+  },
+  {
+    "conditionId": "0xabc003",
+    "slug": null,
+    "question": "Who wins the 2025 UK general election?",
+    "endDate": "2025-05-01T00:00:00Z",
+    "active": true,
+    "outcomes": ["Labour", "Conservatives", "Lib Dems", "Other"],
+    "outcomePrices": ["0.55", "0.25", "0.12", "0.08"],
+    "volume": 890000,
+    "liquidity": 42000,
+    "clobTokenIds": ["token_labour", "token_con", "token_lib", "token_other"]
+  },
+  {
+    "conditionId": "0xabc004",
+    "slug": "us-recession-2025",
+    "question": "Will the US enter a recession in 2025?",
+    "endDate": "2025-12-31T00:00:00Z",
+    "active": true,
+    "outcomes": ["Yes", "No"],
+    "outcomePrices": ["0.29", "0.71"],
+    "volume": 560000,
+    "liquidity": 31000,
+    "clobTokenIds": ["token_yes_004", "token_no_004"]
+  },
+  {
+    "conditionId": "0xabc005",
+    "slug": "nba-championship-2025",
+    "question": "Which team wins the 2025 NBA Championship?",
+    "endDate": "2025-06-22T00:00:00Z",
+    "active": true,
+    "outcomes": ["Boston Celtics", "Oklahoma City Thunder", "Cleveland Cavaliers"],
+    "outcomePrices": ["0.35", "0.40", "0.25"],
+    "volume": 450000,
+    "liquidity": 28000,
+    "clobTokenIds": ["token_bos", "token_okc", "token_cle"]
+  }
+]

@@ -1,0 +1,14 @@
+{
+  "market": "0xabc001",
+  "asset_id": "token_yes_001",
+  "bids": [
+    {"price": "0.55", "size": "4500"},
+    {"price": "0.54", "size": "8200"},
+    {"price": "0.53", "size": "12000"}
+  ],
+  "asks": [
+    {"price": "0.57", "size": "2100"},
+    {"price": "0.58", "size": "5400"},
+    {"price": "0.59", "size": "9800"}
+  ]
+}

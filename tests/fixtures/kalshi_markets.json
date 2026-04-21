@@ -1,0 +1,60 @@
+{
+  "markets": [
+    {
+      "ticker": "FED-25JUN-T5.25",
+      "title": "Fed funds rate above 5.25% after June 2025 meeting?",
+      "close_time": "2025-06-18T18:00:00Z",
+      "yes_bid": 44,
+      "yes_ask": 46,
+      "no_bid": 54,
+      "no_ask": 56,
+      "volume": 85000,
+      "liquidity": 32000
+    },
+    {
+      "ticker": "INFL-25DEC-B3",
+      "title": "Will US CPI inflation be below 3% by December 2025?",
+      "close_time": "2025-12-31T20:00:00Z",
+      "yes_bid": 61,
+      "yes_ask": 63,
+      "no_bid": 37,
+      "no_ask": 39,
+      "volume": 42000,
+      "liquidity": 18500
+    },
+    {
+      "ticker": "UNEMP-25SEP-A4.5",
+      "title": "US unemployment above 4.5% in September 2025?",
+      "close_time": "2025-10-03T20:00:00Z",
+      "yes_bid": 28,
+      "yes_ask": 30,
+      "no_bid": 70,
+      "no_ask": 72,
+      "volume": 31000,
+      "liquidity": 14000
+    },
+    {
+      "ticker": "BTCEND-25DEC-100K",
+      "title": "Bitcoin above $100,000 on December 31, 2025?",
+      "close_time": "2025-12-31T23:59:00Z",
+      "yes_bid": 36,
+      "yes_ask": 38,
+      "no_bid": 62,
+      "no_ask": 64,
+      "volume": 120000,
+      "liquidity": 55000
+    },
+    {
+      "ticker": "RECESSION-25",
+      "title": "US recession declared in 2025?",
+      "close_time": "2025-12-31T23:59:00Z",
+      "yes_bid": 22,
+      "yes_ask": 24,
+      "no_bid": 76,
+      "no_ask": 78,
+      "volume": 67000,
+      "liquidity": 29000
+    }
+  ],
+  "next_cursor": null
+}
