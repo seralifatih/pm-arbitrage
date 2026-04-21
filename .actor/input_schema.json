@@ -6,13 +6,16 @@
     "mode": {
       "title": "Scan Mode",
       "type": "string",
+      "editor": "select",
       "enum": ["scan-all", "categories"],
+      "enumTitles": ["Scan all open markets", "Filter by categories"],
       "default": "scan-all",
       "description": "scan-all scans all open markets. categories uses the categories filter."
     },
     "categories": {
       "title": "Categories",
       "type": "array",
+      "editor": "stringList",
       "items": { "type": "string" },
       "default": [],
       "description": "Filter by category (e.g. politics, economics, sports, crypto). Leave empty for all."
@@ -20,44 +23,54 @@
     "min_net_spread_pct": {
       "title": "Minimum Net Spread %",
       "type": "number",
+      "editor": "number",
       "default": -3.0,
-      "description": "Set to 0 for pure arbitrage only. Negative values include EV+ opportunities below breakeven gross."
+      "description": "Set to 0 for pure arbitrage only. Negative values include EV+ opportunities below breakeven gross. Decimals allowed (e.g. -1.5)."
     },
     "min_signal_score": {
       "title": "Minimum Signal Score",
       "type": "integer",
+      "editor": "number",
       "default": 50,
       "minimum": 0,
-      "maximum": 100
+      "maximum": 100,
+      "description": "Minimum 0-100 confidence score required for an opportunity to be returned."
     },
     "min_liquidity_usd": {
       "title": "Minimum Liquidity (USD)",
       "type": "integer",
+      "editor": "number",
       "default": 1000,
       "description": "Exclude markets with total liquidity below this threshold."
     },
     "liquidity_test_amount_usd": {
       "title": "Liquidity Test Size (USD)",
       "type": "integer",
+      "editor": "number",
       "default": 500,
       "description": "Simulated position size for depth test. Sets the fillable threshold."
     },
     "max_days_to_resolution": {
       "title": "Max Days to Resolution",
       "type": "integer",
-      "default": 90
+      "editor": "number",
+      "default": 90,
+      "description": "Skip markets resolving beyond this horizon."
     },
     "include_manifold": {
       "title": "Include Manifold Markets",
       "type": "boolean",
+      "editor": "checkbox",
       "default": false,
       "description": "Manifold uses play money. Useful for calibration signal research, not live trading."
     },
     "output_limit": {
       "title": "Max Opportunities in Output",
       "type": "integer",
+      "editor": "number",
       "default": 50,
-      "maximum": 200
+      "maximum": 200,
+      "description": "Cap on opportunities returned per run."
     }
   }
 }
