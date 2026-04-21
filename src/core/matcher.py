@@ -77,11 +77,15 @@ def match_markets(
                 continue
 
             # Step 3: title similarity
+            # Threshold relaxed 75 → 60 for v1 because Polymarket's "Will X..."
+            # phrasing diverges sharply from Kalshi's structured ticker titles
+            # on identical events (live data: real matches score ~55–70).
+            # Entity overlap + date window remain as additional gates.
             title_a = ma.get("title", "")
             title_b = mb.get("title", "")
             title_score = fuzz.token_sort_ratio(title_a, title_b)
 
-            if title_score < 75:
+            if title_score < 60:
                 continue
 
             # Step 4: entity overlap

@@ -500,3 +500,60 @@ Final pre-launch polish pass:
 
 Acceptance gate: Actor is live at https://apify.com/seralifatih/pm-arbitrage with correct metadata, passing run, and complete README.
 ```
+
+---
+
+## Prompt 13 — v2 Matcher Rewrite
+
+```
+Background: v1 matcher uses raw `rapidfuzz.fuzz.token_sort_ratio >= 60` on
+event titles. Live data shows the same real-world event scores 55–70 across
+venues because Polymarket and Kalshi phrase titles very differently:
+
+  Polymarket: "Will the Lakers win the 2026 NBA Finals?"
+  Kalshi:     "NBA Finals winner — Los Angeles Lakers"
+  Polymarket: "Will the Fed cut rates at the June 2025 FOMC meeting?"
+  Kalshi:     "FED-25JUN-T5.25 — Fed funds rate above 5.25% after June 2025?"
+
+The v1 threshold drop to 60 was a temporary unblock that lets a few real
+matches surface but is fragile and noisy. Rebuild the matcher properly.
+
+Goal: replace the title-only fuzzy match with a normalize-then-score
+pipeline that handles the structural divergence between venues.
+
+Tasks:
+
+1. Add `src/core/title_normalizer.py` with `normalize_title(title: str) -> str`:
+   - Strip leading "Will ", "Does ", "Is ", "Has " (Polymarket question form)
+   - Strip Kalshi-style ticker prefixes (UPPERCASE-with-dashes followed by " — ")
+   - Strip date phrases ("by end of 2025", "after June 2025 meeting", etc.)
+   - Strip trailing "?"
+   - Strip parenthesized aside ("(FOMC)", "(by Q4)", etc.)
+   - Lowercase, collapse whitespace
+   - Return the normalized core phrase
+
+2. Update `src/core/matcher.py` to compute title similarity on
+   normalized titles, not raw. Keep title threshold at 75 against
+   normalized inputs (much tighter signal).
+
+3. Add a "key entities" extraction step that pulls proper nouns + numbers
+   (e.g. "Lakers", "Fed", "5.25", "2025") and weights entity overlap up
+   to 35% of the confidence score (was 20% in v1). Title drops to 35%,
+   date stays at 30%.
+
+4. Build a fixture set in `tests/fixtures/cross_venue_pairs.json` with
+   at least 15 hand-labeled pairs (true_match: bool) sourced from a
+   live `scripts/live_scan.py` run. Include:
+   - 5 known true matches (same event, different phrasing)
+   - 5 known false matches (similar wording, different events)
+   - 5 edge cases (numerical thresholds, multi-leg events)
+
+5. Add `tests/test_matcher_v2.py` that runs the matcher against the
+   fixture set and asserts precision >= 0.85 and recall >= 0.70.
+
+6. Re-run live scan and confirm `total_pairs_scanned > 0` and at least
+   one opportunity surfaces with `match_confidence >= 75`.
+
+Acceptance gate: tests/test_matcher_v2.py passes; live scan returns ≥1
+opportunity with match_confidence ≥ 75; v1 unit tests still pass.
+```
