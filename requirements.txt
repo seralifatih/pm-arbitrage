@@ -1,5 +1,5 @@
-apify-client
-httpx
-rapidfuzz
+apify>=2.0.0
+httpx>=0.25.0
+rapidfuzz>=3.0.0
 pydantic>=2.0
 python-dateutil
