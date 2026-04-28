@@ -1,11 +1,11 @@
 {
   "actorSpecification": 1,
   "name": "pm-arbitrage",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "buildTag": "latest",
   "memoryMbytes": 512,
-  "title": "Prediction Market Arbitrage Scanner",
-  "description": "Cross-venue arbitrage signal engine for Polymarket and Kalshi. Fee-normalized, liquidity-tested, confidence-scored.",
+  "title": "Polymarket Multi-Outcome Arbitrage Scanner",
+  "description": "Finds events where mutually-exclusive YES prices sum ≠ 1.0. Concrete arithmetic arbitrage with fee-adjusted returns and per-leg liquidity tests.",
   "categories": ["finance", "developer-tools"],
   "input": "./input_schema.json"
 }

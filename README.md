@@ -1,75 +1,79 @@
-# 🎯 Prediction Market Arbitrage Scanner
+# 🎯 Polymarket Multi-Outcome Arbitrage Scanner
 
-> **No noise, just alpha.** Cross-venue prediction market arbitrage signal engine.
+> **No noise, just alpha.** Concrete arithmetic arbitrage on Polymarket's multi-outcome events.
 
 [![Run on Apify](https://apify.com/actor-badge?actor=seralifatih/pm-arbitrage)](https://apify.com/seralifatih/pm-arbitrage)
 [![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A production-grade signal engine that scans the same real-world event across **Polymarket** and **Kalshi**, fuzzy-matches markets covering the same outcome, calculates net spread after fees, tests order book liquidity, and returns a confidence-scored JSON signal feed. No raw data dumps — only actionable opportunities.
+A signal engine that scans every multi-outcome Polymarket event (presidential nominations, championship winners, who-becomes-X markets) and detects when the **mutually-exclusive YES prices fail to sum to 1.0** — the mathematical fingerprint of free arbitrage. Output is decision-ready JSON with the exact basket composition, expected return after fees, and per-leg fillability.
 
 ---
 
 ## ✨ Key Features
 
-- **Cross-venue matching** — fuzzy title + entity overlap + date-window matching across Polymarket and Kalshi
-- **Fee-aware net spread** — every opportunity reports `gross_spread_pct`, `fees_pct`, and `net_spread_pct` (Polymarket 2%, Kalshi 7%)
-- **Real liquidity tests** — walks live order books at a configurable test size; flags `fillable: true/false/null` per opportunity
-- **Confidence-scored signals** — every result tagged with a 0–100 `signal_score` and label (`Pure arbitrage`, `Strong EV+ signal`, `EV+ with edge`, `Marginal`)
-- **Async-first pipeline** — concurrent venue fetches and order-book probes; full scan in 60–120s
-- **Public-read only** — no API keys required; runs out of the box on Apify free tier
-- **Modular venue adapters** — adding Manifold, Myriad, or any new venue = one file
+- **Pure arithmetic arbitrage** — Σ YES across mutually-exclusive outcomes must equal 1.0. When it doesn't, you can buy or sell the basket for guaranteed profit.
+- **Two arb directions** — `buy_yes_basket` (when Σ YES < 1.0) and `buy_no_basket` (when Σ YES > 1.0). The scanner picks the profitable side.
+- **Fee-adjusted returns** — every opportunity reports `gross_return_pct`, `fees_pct` (4% round-trip on Polymarket), and the headline `net_return_pct`.
+- **Real per-leg liquidity tests** — walks each child market's CLOB order book at a configurable position size; flags `all_legs_fillable: true/false/null` per opportunity.
+- **Confidence-scored signals** — every result tagged with a 0–100 `signal_score` and label (`Pure arbitrage`, `Strong EV+ signal`, `EV+ with edge`, `Marginal`).
+- **Public-read only** — no API keys required.
+- **Async-first** — concurrent event fetch + parallel order-book probes; full scan in 30–90s.
 
 ---
 
 ## 📊 Sample Output
 
-Each item in the dataset is a fully-decorated opportunity:
+Each opportunity is a complete basket trade with the math worked out:
 
 ```json
 {
-  "id": "fed-rate-cut-june-2025-polymarket-kalshi",
-  "event_title": "Will the Fed cut rates at the June 2025 FOMC meeting?",
-  "resolution_date": "2025-06-18",
-  "venue_a": {
-    "name": "polymarket",
-    "market_url": "https://polymarket.com/event/fed-rate-cut-june-2025",
-    "side": "YES",
-    "price_cents": 56,
-    "liquidity_usd": 124500
+  "id": "2028-democratic-presidential-nominee-buy_yes_basket",
+  "event_title": "2028 Democratic Presidential Nominee",
+  "event_url": "https://polymarket.com/event/2028-democratic-presidential-nominee",
+  "resolution_date": "2028-11-07",
+  "arb_type": "buy_yes_basket",
+  "leg_count": 12,
+  "sum_yes_price": 0.9320,
+  "deviation_from_one": -0.068,
+  "fees_pct": 4.0,
+  "gross_return_pct": 7.30,
+  "net_return_pct": 3.30,
+  "legs": [
+    {
+      "market_id": "0xabc...",
+      "question": "Will Pete Buttigieg win the 2028 Democratic nomination?",
+      "outcome_label": "Pete Buttigieg",
+      "side": "YES",
+      "price": 0.0425,
+      "market_url": "https://polymarket.com/event/...",
+      "liquidity_usd": 84200,
+      "fillable": true
+    }
+  ],
+  "liquidity": {
+    "tested_usd_per_leg": 100,
+    "all_legs_fillable": true,
+    "fillable_leg_count": 12,
+    "total_leg_count": 12
   },
-  "venue_b": {
-    "name": "kalshi",
-    "market_url": "https://kalshi.com/markets/FED-25JUN-T5.25",
-    "side": "NO",
-    "price_cents": 41,
-    "liquidity_usd": 38200
-  },
-  "gross_spread_pct": 2.94,
-  "fees_pct": 4.5,
-  "net_spread_pct": -1.56,
-  "liquidity_depth": {
-    "tested_usd": 500,
-    "fillable": true,
-    "price_impact_pct": 0.3
-  },
-  "match_confidence": 91,
-  "signal_score": 74,
-  "signal_label": "EV+ with edge",
+  "signal_score": 71,
+  "signal_label": "Strong EV+ signal",
   "notes": null
 }
 ```
 
-A `ScanSummary` record is also written to the default key-value store under the key `OUTPUT_SUMMARY`:
+A `ScanSummary` is also written to the default key-value store under `OUTPUT_SUMMARY`:
 
 ```json
 {
-  "scanned_at": "2026-04-21T14:30:00Z",
-  "total_pairs_scanned": 847,
+  "scanned_at": "2026-04-29T18:00:00Z",
+  "total_events_scanned": 847,
+  "eligible_events": 38,
   "pure_arb_count": 2,
-  "ev_positive_count": 14,
-  "avg_net_spread_pct": 1.2,
-  "best_opportunity_id": "fed-rate-cut-june-2025-polymarket-kalshi"
+  "ev_positive_count": 11,
+  "avg_net_return_pct": 1.6,
+  "best_opportunity_id": "2028-democratic-presidential-nominee-buy_yes_basket"
 }
 ```
 
@@ -77,21 +81,34 @@ A `ScanSummary` record is also written to the default key-value store under the 
 
 | Label | Score | Meaning |
 |-------|-------|---------|
-| `Pure arbitrage` | ≥ 80 + net spread > 0 | Risk-free spread after fees |
+| `Pure arbitrage` | ≥ 80 + net return > 0 | Risk-free spread after fees |
 | `Strong EV+ signal` | 60–79 | High-conviction edge |
 | `EV+ with edge` | 40–59 | Mild edge — position sizing matters |
 | `Marginal` | < 40 | Excluded by default |
 
 ---
 
-## 🛠 Supported Venues
+## 🧮 The Math
 
-| Venue | API | Auth | Fee | Status |
-|-------|-----|------|-----|--------|
-| **Polymarket** | Gamma + CLOB | Public read | 2% taker | ✅ Live |
-| **Kalshi** | Elections v2 | Public read | 7% combined | ✅ Live |
-| **Manifold** | — | — | 0% (play money) | 🚧 v2 |
-| **Myriad** | — | — | ~2% | 🚧 v2 |
+For a Polymarket event with N mutually-exclusive outcomes (e.g. "who wins the 2028 Democratic primary?"), exactly one outcome resolves YES. So under perfect pricing:
+
+```
+Σ P(outcome_i = YES) = 1.0
+```
+
+When the sum drifts away from 1.0, there's free money:
+
+**Buy-YES-basket arb** (Σ YES < 1.0):
+- Cost: Σ YES dollars to buy 1 share of every YES outcome
+- Payout: $1 (one of them resolves YES)
+- Gross return: `(1 - Σ YES) / Σ YES`
+
+**Buy-NO-basket arb** (Σ YES > 1.0):
+- Cost: `N - Σ YES` dollars (NO_i = 1 - YES_i)
+- Payout: `N - 1` dollars (one outcome resolves NO worthless, others pay $1)
+- Gross return: `(Σ YES - 1) / (N - Σ YES)`
+
+The scanner subtracts a conservative 4% round-trip fee (Polymarket's 2% taker × open + close) to compute `net_return_pct`. Every leg is liquidity-tested at the configured position size before being marked fillable.
 
 ---
 
@@ -100,21 +117,19 @@ A `ScanSummary` record is also written to the default key-value store under the 
 ### Method 1: No-Code (Apify Console)
 
 1. Open the actor on [Apify](https://apify.com/seralifatih/pm-arbitrage)
-2. Adjust `min_signal_score` and `min_net_spread_pct` for your strategy
-3. Click **Start** — results land in the dataset; summary lands in `OUTPUT_SUMMARY`
+2. Adjust `min_signal_score` and `min_net_return_pct` for your strategy
+3. Click **Start** — opportunities land in the dataset, summary in `OUTPUT_SUMMARY`
 
 ### Method 2: API Integration (For Developers)
-
-Trigger a run:
 
 ```bash
 curl -X POST "https://api.apify.com/v2/acts/seralifatih~pm-arbitrage/runs?token=YOUR_API_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "mode": "scan-all",
-    "min_net_spread_pct": 0,
+    "min_net_return_pct": 0,
     "min_signal_score": 70,
-    "min_liquidity_usd": 5000,
+    "min_event_liquidity_usd": 10000,
+    "liquidity_test_amount_usd": 250,
     "output_limit": 25
   }'
 ```
@@ -127,7 +142,7 @@ curl "https://api.apify.com/v2/datasets/DATASET_ID/items?token=YOUR_API_TOKEN&fo
 
 ### Scheduled runs
 
-Schedule the actor every 5–15 minutes during high-volatility windows (FOMC days, election nights, championship games) for fresh signal.
+Schedule the actor every 5–15 minutes during high-volatility windows (election nights, championship games, FOMC days) to catch fresh basket mispricings before market makers correct them.
 
 ---
 
@@ -135,47 +150,46 @@ Schedule the actor every 5–15 minutes during high-volatility windows (FOMC day
 
 ```json
 {
-  "mode": "scan-all",
-  "categories": [],
-  "min_net_spread_pct": -3.0,
-  "min_signal_score": 50,
-  "min_liquidity_usd": 1000,
-  "liquidity_test_amount_usd": 500,
-  "max_days_to_resolution": 90,
-  "include_manifold": false,
+  "min_net_return_pct": -1.0,
+  "min_signal_score": 30,
+  "min_event_liquidity_usd": 5000,
+  "min_liquidity_per_leg_usd": 200,
+  "min_legs_per_event": 3,
+  "liquidity_test_amount_usd": 100,
+  "max_days_to_resolution": 365,
+  "max_events_to_scan": 1000,
   "output_limit": 50
 }
 ```
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `mode` | string | `"scan-all"` | `scan-all` scans all open markets. `categories` filters by category list. |
-| `categories` | string[] | `[]` | Filter by category (`politics`, `economics`, `sports`, `crypto`). Empty = all. |
-| `min_net_spread_pct` | number | `-3.0` | Minimum net spread to report. `0` = pure arbitrage only. Negative includes EV+ below breakeven gross. |
-| `min_signal_score` | integer | `50` | Minimum signal score (0–100) to include. |
-| `min_liquidity_usd` | integer | `1000` | Exclude markets with total liquidity below this threshold. |
-| `liquidity_test_amount_usd` | integer | `500` | Simulated position size for the depth test. Sets the `fillable` threshold. |
-| `max_days_to_resolution` | integer | `90` | Skip markets resolving beyond this horizon. |
-| `include_manifold` | boolean | `false` | Include Manifold (play-money) markets. Calibration research only. |
-| `output_limit` | integer | `50` | Max opportunities returned (≤ 200). |
+| `min_net_return_pct` | number | `-1.0` | Minimum net return after fees. `0` = pure arbitrage only. |
+| `min_signal_score` | integer | `30` | Minimum 0–100 signal score to include. |
+| `min_event_liquidity_usd` | integer | `5000` | Skip events below this cumulative liquidity. |
+| `min_liquidity_per_leg_usd` | integer | `200` | Each leg must have at least this liquidity (filters dead placeholders). |
+| `min_legs_per_event` | integer | `3` | Skip events with fewer mutually-exclusive legs than this. |
+| `liquidity_test_amount_usd` | integer | `100` | Per-leg position size for the depth test. |
+| `max_days_to_resolution` | integer | `365` | Skip events resolving beyond this horizon. |
+| `max_events_to_scan` | integer | `1000` | Cap on Polymarket events fetched. Higher = wider coverage, slower. |
+| `output_limit` | integer | `50` | Cap on opportunities returned (≤ 200). |
 
 ---
 
 ## 🧰 Tech Stack
 
 - **Python 3.11** — async-first
-- **httpx** — concurrent venue requests
-- **rapidfuzz** — fuzzy market matching
+- **httpx** — concurrent Gamma + CLOB requests
 - **pydantic v2** — strict output schema
 - **Apify SDK for Python**
 
-Estimated run time: 60–120 seconds for `scan-all` mode at 512 MB memory.
+Estimated run time: 30–90 seconds for the default config at 512 MB memory.
 
 ---
 
 ## ⚠️ Disclaimer
 
-This tool is for informational and analytical purposes only. Prediction market trading involves financial risk. Spreads, liquidity, and resolution outcomes can move against you between signal and execution. Always validate signals independently before trading. Not financial advice.
+This tool is for informational and analytical purposes only. Prediction market trading involves financial risk. The arithmetic identity (Σ YES = 1.0) holds only for **fully-specified** events — events with hidden "Other" outcomes or unlisted candidates may show false signal. Always verify the event's outcome space is complete and that all legs are fillable at your intended size before committing capital. Not financial advice.
 
 ---
 
@@ -183,4 +197,3 @@ This tool is for informational and analytical purposes only. Prediction market t
 
 - [**Crypto Arbitrage Scanner**](https://apify.com/seralifatih/arbitrage) — CEX spot arbitrage across 8+ exchanges
 - [**CEX Funding Rate Arbitrage**](https://apify.com/seralifatih/cex-funding-rate-arbitrage) — Perpetual funding rate basis trades
-- Use with the arbitrage scanner to validate prediction market moves against spot crypto signal.

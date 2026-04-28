@@ -1,68 +1,65 @@
 {
-  "title": "Prediction Market Arbitrage Scanner",
+  "title": "Polymarket Multi-Outcome Arbitrage Scanner",
   "type": "object",
   "schemaVersion": 1,
   "properties": {
-    "mode": {
-      "title": "Scan Mode",
-      "type": "string",
-      "editor": "select",
-      "enum": ["scan-all", "categories"],
-      "enumTitles": ["Scan all open markets", "Filter by categories"],
-      "default": "scan-all",
-      "description": "scan-all scans all open markets. categories uses the categories filter."
-    },
-    "categories": {
-      "title": "Categories",
-      "type": "array",
-      "editor": "stringList",
-      "items": { "type": "string" },
-      "default": [],
-      "description": "Filter by category (e.g. politics, economics, sports, crypto). Leave empty for all."
-    },
-    "min_net_spread_pct": {
-      "title": "Minimum Net Spread %",
+    "min_net_return_pct": {
+      "title": "Minimum Net Return %",
       "type": "number",
       "editor": "number",
-      "default": -3.0,
-      "description": "Set to 0 for pure arbitrage only. Negative values include EV+ opportunities below breakeven gross. Decimals allowed (e.g. -1.5)."
+      "default": -1.0,
+      "description": "Minimum net basket return after fees. 0 = pure arbitrage only. Negative includes EV+ opportunities slightly below breakeven."
     },
     "min_signal_score": {
       "title": "Minimum Signal Score",
       "type": "integer",
       "editor": "number",
-      "default": 50,
+      "default": 30,
       "minimum": 0,
       "maximum": 100,
-      "description": "Minimum 0-100 confidence score required for an opportunity to be returned."
+      "description": "0–100 confidence score required to include an opportunity."
     },
-    "min_liquidity_usd": {
-      "title": "Minimum Liquidity (USD)",
+    "min_event_liquidity_usd": {
+      "title": "Minimum Event Liquidity (USD)",
       "type": "integer",
       "editor": "number",
-      "default": 1000,
-      "description": "Exclude markets with total liquidity below this threshold."
+      "default": 5000,
+      "description": "Skip events whose total cumulative liquidity is below this."
+    },
+    "min_liquidity_per_leg_usd": {
+      "title": "Minimum Liquidity Per Leg (USD)",
+      "type": "integer",
+      "editor": "number",
+      "default": 200,
+      "description": "Each child market (leg) must have at least this liquidity. Filters dead placeholder candidates."
+    },
+    "min_legs_per_event": {
+      "title": "Minimum Legs Per Event",
+      "type": "integer",
+      "editor": "number",
+      "default": 3,
+      "description": "Events with fewer mutually-exclusive legs than this are skipped."
     },
     "liquidity_test_amount_usd": {
       "title": "Liquidity Test Size (USD)",
       "type": "integer",
       "editor": "number",
-      "default": 500,
-      "description": "Simulated position size for depth test. Sets the fillable threshold."
+      "default": 100,
+      "description": "Per-leg position size for the order book depth test. Sets the fillable threshold."
     },
     "max_days_to_resolution": {
       "title": "Max Days to Resolution",
       "type": "integer",
       "editor": "number",
-      "default": 90,
-      "description": "Skip markets resolving beyond this horizon."
+      "default": 365,
+      "description": "Skip events whose latest child resolves beyond this horizon."
     },
-    "include_manifold": {
-      "title": "Include Manifold Markets",
-      "type": "boolean",
-      "editor": "checkbox",
-      "default": false,
-      "description": "Manifold uses play money. Useful for calibration signal research, not live trading."
+    "max_events_to_scan": {
+      "title": "Max Events to Scan",
+      "type": "integer",
+      "editor": "number",
+      "default": 1000,
+      "description": "Cap on Polymarket events fetched per run. Higher = wider coverage, slower."
     },
     "output_limit": {
       "title": "Max Opportunities in Output",

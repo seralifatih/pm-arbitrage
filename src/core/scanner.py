@@ -1,170 +1,231 @@
+"""Multi-outcome arbitrage scanner.
+
+Detects mispriced mutually-exclusive Polymarket events.
+
+Math:
+  For an event with N mutually-exclusive child markets, exactly one resolves
+  YES. So under perfect pricing:  Σ P(outcome_i = YES) = 1.0
+
+  Buy-YES-basket arb: when Σ YES < 1.0
+    Cost to buy 1 share of every YES outcome = Σ YES * $1 (per $-share)
+    Guaranteed payout = $1 (one of them resolves YES)
+    Gross return = (1.0 - Σ YES) / Σ YES
+
+  Buy-NO-basket arb: when Σ YES > 1.0
+    Cost to buy 1 share of NO on every outcome = N - Σ YES (since NO_i = 1 - YES_i)
+    At resolution, exactly one NO resolves NO ($0); the other (N-1) resolve YES ($1 each)
+    Guaranteed payout = N - 1
+    Gross return = ((N - 1) - (N - Σ YES)) / (N - Σ YES)
+                 = (Σ YES - 1.0) / (N - Σ YES)
+
+Fees: each leg incurs the platform fee (Polymarket ~2% per fill).
+Total round-trip fee drag = 2 * fee_rate (open + close, applied to leg cost).
+For estimation we use a flat fees_pct = 2 * FEE_POLYMARKET * 100 = 4%.
+"""
 import asyncio
-from datetime import date
+from datetime import date, datetime, timezone
 from typing import Optional
 
-from ..utils.fees import calculate_spread
+from ..utils.fees import FEE_POLYMARKET
 from ..utils.logger import logger
-from ..venues.base import VenueAdapter
-from ..venues.kalshi import KalshiAdapter
 from ..venues.polymarket import PolymarketAdapter
-from .matcher import match_markets
-from .models import LiquidityDepth, Opportunity, ScanSummary, VenuePosition
+from .models import LiquidityCheck, Opportunity, OutcomeLeg, ScanSummary
 from .scorer import score_opportunity
 
+# Round-trip fee for entering and exiting a position. Conservative: assumes
+# both fills are takers (worst case). Maker rebates would lower this.
+ROUND_TRIP_FEE_PCT = 2 * FEE_POLYMARKET * 100  # 4%
 
-def _build_adapters(input_config: dict) -> list[VenueAdapter]:
-    max_days = int(input_config.get("max_days_to_resolution", 90))
-    adapters: list[VenueAdapter] = [
-        PolymarketAdapter(),
-        KalshiAdapter(max_days_to_resolution=max_days),
-    ]
-    if input_config.get("include_manifold"):
-        # placeholder — Manifold adapter not implemented in v1
-        pass
-    return adapters
+# Minimum YES price to count a leg as "active" (not a dead placeholder).
+# Many Polymarket events have placeholder markets ("Person X") at $0 — they
+# inflate the leg count but contribute zero to the YES sum, breaking the
+# Σ = 1.0 invariant. Filtering them is mandatory.
+MIN_LEG_YES_PRICE = 0.005  # 0.5¢
 
 
 def _days_to_resolution(resolution_date: str) -> int:
     try:
         d = date.fromisoformat(resolution_date[:10])
-        return (d - date.today()).days
+        return max(0, (d - date.today()).days)
     except (ValueError, TypeError):
         return 99999
 
 
-def _passes_market_filter(market: dict, min_liquidity: int, max_days: int) -> bool:
-    if not market.get("is_binary"):
-        return False
-    if market.get("liquidity_usd", 0) < min_liquidity:
-        return False
-    if _days_to_resolution(market.get("resolution_date", "")) > max_days:
-        return False
-    return True
+def _filter_active_legs(legs: list[dict], min_liquidity_per_leg: int) -> list[dict]:
+    """Keep only legs that look real: priced above floor + meet min liquidity."""
+    return [
+        leg for leg in legs
+        if leg["yes_price"] >= MIN_LEG_YES_PRICE
+        and leg["liquidity_usd"] >= min_liquidity_per_leg
+    ]
 
 
-async def _safe_fetch_markets(adapter: VenueAdapter) -> list[dict]:
-    try:
-        raw = await adapter.fetch_open_markets()
-    except Exception as exc:
-        logger.warning(f"Venue {adapter.name} fetch failed: {exc}")
-        return []
+def _compute_arb(
+    event: dict,
+    active_legs: list[dict],
+    config: dict,
+) -> Optional[dict]:
+    """Compute the best-direction arb on this event's active legs.
 
-    normalized = []
-    for r in raw:
-        n = _safe_normalize(adapter, r)
-        if n is not None:
-            normalized.append(n)
-    return normalized
-
-
-def _safe_normalize(adapter: VenueAdapter, raw: dict) -> Optional[dict]:
-    try:
-        return adapter.normalize_market(raw)
-    except Exception as exc:
-        logger.warning(f"Venue {adapter.name} normalize failed: {exc}")
-        return None
-
-
-def _pick_sides(market_a: dict, market_b: dict) -> tuple[str, str, float, float]:
+    Returns a dict with all economics, or None if no edge exists.
     """
-    Choose YES/NO sides so the implied prices sum nearest to 1.0.
-    Returns (side_a, side_b, price_a, price_b).
-    """
-    yes_a, no_a = market_a["yes_price"], market_a["no_price"]
-    yes_b, no_b = market_b["yes_price"], market_b["no_price"]
+    sum_yes = sum(leg["yes_price"] for leg in active_legs)
+    n = len(active_legs)
+    deviation = round(sum_yes - 1.0, 4)
 
-    # YES on A + NO on B (canonical) vs NO on A + YES on B
-    cost_yes_no = yes_a + no_b
-    cost_no_yes = no_a + yes_b
+    # We use ROUND_TRIP_FEE_PCT as the fee drag to be conservative.
+    fees_pct = ROUND_TRIP_FEE_PCT
 
-    if cost_yes_no <= cost_no_yes:
-        return ("YES", "NO", yes_a, no_b)
-    return ("NO", "YES", no_a, yes_b)
+    if sum_yes < 1.0:
+        # BUY-YES-BASKET arb
+        gross_return_pct = round((1.0 - sum_yes) / sum_yes * 100, 4)
+        net_return_pct = round(gross_return_pct - fees_pct, 4)
+        arb_type = "buy_yes_basket"
+    else:
+        # BUY-NO-BASKET arb
+        # NO basket cost = N - sum_yes;  guaranteed payout = N - 1
+        no_basket_cost = n - sum_yes
+        if no_basket_cost <= 0:
+            return None  # degenerate
+        gross_return_pct = round((sum_yes - 1.0) / no_basket_cost * 100, 4)
+        net_return_pct = round(gross_return_pct - fees_pct, 4)
+        arb_type = "buy_no_basket"
+
+    return {
+        "sum_yes_price": round(sum_yes, 4),
+        "deviation_from_one": deviation,
+        "leg_count": n,
+        "arb_type": arb_type,
+        "gross_return_pct": gross_return_pct,
+        "net_return_pct": net_return_pct,
+        "fees_pct": fees_pct,
+    }
+
+
+async def _liquidity_check_legs(
+    adapter: PolymarketAdapter,
+    active_legs: list[dict],
+    arb_type: str,
+    test_usd_per_leg: int,
+) -> tuple[list[Optional[bool]], LiquidityCheck]:
+    """Probe orderbook for each leg, return per-leg fillable + summary."""
+    if arb_type == "buy_yes_basket":
+        token_ids = [leg["yes_token_id"] for leg in active_legs]
+        side = "YES"
+    else:
+        token_ids = [leg["no_token_id"] for leg in active_legs]
+        side = "NO"
+
+    books = await asyncio.gather(
+        *(adapter.fetch_orderbook(tid) for tid in token_ids),
+        return_exceptions=True,
+    )
+
+    per_leg_fillable: list[Optional[bool]] = []
+    for book in books:
+        if isinstance(book, Exception):
+            per_leg_fillable.append(None)
+        else:
+            per_leg_fillable.append(adapter.test_leg_fillable(book, test_usd_per_leg, side))
+
+    fillable_count = sum(1 for f in per_leg_fillable if f is True)
+    has_unknown = any(f is None for f in per_leg_fillable)
+
+    if has_unknown:
+        all_fillable: Optional[bool] = None
+    else:
+        all_fillable = all(f is True for f in per_leg_fillable)
+
+    return per_leg_fillable, LiquidityCheck(
+        tested_usd_per_leg=test_usd_per_leg,
+        all_legs_fillable=all_fillable,
+        fillable_leg_count=fillable_count,
+        total_leg_count=len(active_legs),
+    )
+
+
+def _build_legs(
+    active_legs: list[dict],
+    arb_type: str,
+    per_leg_fillable: list[Optional[bool]],
+) -> list[OutcomeLeg]:
+    legs: list[OutcomeLeg] = []
+    side = "YES" if arb_type == "buy_yes_basket" else "NO"
+    for raw_leg, fillable in zip(active_legs, per_leg_fillable):
+        price = raw_leg["yes_price"] if side == "YES" else (1.0 - raw_leg["yes_price"])
+        legs.append(OutcomeLeg(
+            market_id=raw_leg["market_id"],
+            question=raw_leg["question"],
+            outcome_label=raw_leg["outcome_label"],
+            side=side,
+            price=round(price, 4),
+            market_url=raw_leg["market_url"],
+            liquidity_usd=raw_leg["liquidity_usd"],
+            fillable=fillable,
+        ))
+    return legs
 
 
 async def _build_opportunity(
-    pair: dict,
-    adapter_a: VenueAdapter,
-    adapter_b: VenueAdapter,
-    input_config: dict,
+    adapter: PolymarketAdapter,
+    event: dict,
+    active_legs: list[dict],
+    config: dict,
 ) -> Optional[Opportunity]:
-    market_a = pair["market_a"]
-    market_b = pair["market_b"]
-
-    side_a, side_b, price_a, price_b = _pick_sides(market_a, market_b)
-    spread = calculate_spread(price_a, price_b, adapter_a.name, adapter_b.name)
-
-    min_net = float(input_config.get("min_net_spread_pct", -3.0))
-    if spread["net_spread_pct"] < min_net:
+    arb = _compute_arb(event, active_legs, config)
+    if arb is None:
         return None
 
-    test_usd = int(input_config.get("liquidity_test_amount_usd", 500))
+    min_net = float(config.get("min_net_return_pct", -1.0))
+    if arb["net_return_pct"] < min_net:
+        return None
 
-    book_a, book_b = await asyncio.gather(
-        adapter_a.fetch_orderbook(market_a["id"]),
-        adapter_b.fetch_orderbook(market_b["id"]),
-        return_exceptions=False,
+    test_usd = int(config.get("liquidity_test_amount_usd", 100))
+    per_leg_fillable, liq_check = await _liquidity_check_legs(
+        adapter, active_legs, arb["arb_type"], test_usd,
     )
 
-    depth_a = adapter_a.test_liquidity_depth(book_a, test_usd, price_a)
-    depth_b = adapter_b.test_liquidity_depth(book_b, test_usd, price_b)
-
-    # Combined fillable: both sides must be fillable. If either is unknown → unknown.
-    if depth_a["fillable"] is None or depth_b["fillable"] is None:
-        fillable: Optional[bool] = None
-    else:
-        fillable = depth_a["fillable"] and depth_b["fillable"]
-
-    impacts = [d["price_impact_pct"] for d in (depth_a, depth_b) if d["price_impact_pct"] is not None]
-    price_impact = round(max(impacts), 4) if impacts else None
-
-    days = _days_to_resolution(market_a.get("resolution_date", ""))
-
+    days = _days_to_resolution(event["resolution_date"])
     score, label = score_opportunity(
-        gross_spread_pct=spread["gross_spread_pct"],
-        net_spread_pct=spread["net_spread_pct"],
-        fillable=fillable,
-        match_confidence=pair["match_confidence"],
+        gross_return_pct=arb["gross_return_pct"],
+        net_return_pct=arb["net_return_pct"],
+        all_fillable=liq_check.all_legs_fillable,
+        leg_count=arb["leg_count"],
         days_to_resolution=days,
     )
 
-    min_score = int(input_config.get("min_signal_score", 50))
+    min_score = int(config.get("min_signal_score", 30))
     if score < min_score:
         return None
 
     notes = None
-    if fillable is None:
-        notes = "Order book unavailable on at least one venue; fillable indeterminate."
+    if liq_check.all_legs_fillable is None:
+        notes = (
+            f"Order book unavailable on {sum(1 for f in per_leg_fillable if f is None)} "
+            f"of {arb['leg_count']} legs; partial fillability reported."
+        )
+    elif not liq_check.all_legs_fillable:
+        notes = (
+            f"Only {liq_check.fillable_leg_count}/{arb['leg_count']} legs "
+            f"can be filled at ${test_usd}; basket execution incomplete."
+        )
 
-    opp_id = Opportunity.make_id(market_a.get("title", ""), adapter_a.name, adapter_b.name)
+    legs = _build_legs(active_legs, arb["arb_type"], per_leg_fillable)
 
     return Opportunity(
-        id=opp_id,
-        event_title=market_a.get("title", ""),
-        resolution_date=market_a.get("resolution_date", ""),
-        venue_a=VenuePosition(
-            name=adapter_a.name,
-            market_url=market_a.get("market_url", ""),
-            side=side_a,
-            price_cents=int(round(price_a * 100)),
-            liquidity_usd=market_a.get("liquidity_usd", 0),
-        ),
-        venue_b=VenuePosition(
-            name=adapter_b.name,
-            market_url=market_b.get("market_url", ""),
-            side=side_b,
-            price_cents=int(round(price_b * 100)),
-            liquidity_usd=market_b.get("liquidity_usd", 0),
-        ),
-        gross_spread_pct=spread["gross_spread_pct"],
-        fees_pct=spread["fees_pct"],
-        net_spread_pct=spread["net_spread_pct"],
-        liquidity_depth=LiquidityDepth(
-            tested_usd=test_usd,
-            fillable=fillable,
-            price_impact_pct=price_impact,
-        ),
-        match_confidence=pair["match_confidence"],
+        id=Opportunity.make_id(event.get("slug", event["id"]), arb["arb_type"]),
+        event_title=event["title"],
+        event_url=event["event_url"],
+        resolution_date=event["resolution_date"],
+        arb_type=arb["arb_type"],
+        leg_count=arb["leg_count"],
+        sum_yes_price=arb["sum_yes_price"],
+        deviation_from_one=arb["deviation_from_one"],
+        fees_pct=arb["fees_pct"],
+        gross_return_pct=arb["gross_return_pct"],
+        net_return_pct=arb["net_return_pct"],
+        legs=legs,
+        liquidity=liq_check,
         signal_score=score,
         signal_label=label,
         notes=notes,
@@ -172,122 +233,59 @@ async def _build_opportunity(
 
 
 async def run_scan(input_config: dict) -> tuple[list[Opportunity], ScanSummary]:
-    adapters = _build_adapters(input_config)
+    adapter = PolymarketAdapter()
 
-    # Step 2: concurrent venue fetches
-    raw_results = await asyncio.gather(
-        *(_safe_fetch_markets(a) for a in adapters),
+    max_events = int(input_config.get("max_events_to_scan", 1000))
+    min_legs = int(input_config.get("min_legs_per_event", 3))
+    min_event_liquidity = int(input_config.get("min_event_liquidity_usd", 5000))
+    min_liquidity_per_leg = int(input_config.get("min_liquidity_per_leg_usd", 200))
+    max_days = int(input_config.get("max_days_to_resolution", 365))
+
+    raw_events = await adapter.fetch_open_events(max_events=max_events)
+    logger.info(f"Fetched {len(raw_events)} raw events from Polymarket Gamma")
+
+    normalized = [adapter.normalize_event(re_) for re_ in raw_events]
+
+    # Filter to candidate events.
+    eligible: list[tuple[dict, list[dict]]] = []
+    for ev in normalized:
+        if ev["liquidity_usd"] < min_event_liquidity:
+            continue
+        if not ev["resolution_date"]:
+            continue
+        if _days_to_resolution(ev["resolution_date"]) > max_days:
+            continue
+        active_legs = _filter_active_legs(ev["legs"], min_liquidity_per_leg)
+        if len(active_legs) < min_legs:
+            continue
+        eligible.append((ev, active_legs))
+
+    logger.info(
+        f"Eligibility: {len(normalized)} normalized → {len(eligible)} pass filters "
+        f"(≥{min_legs} legs, event liq ≥${min_event_liquidity:,}, "
+        f"leg liq ≥${min_liquidity_per_leg:,}, ≤{max_days}d to resolve)"
+    )
+
+    # Build opportunities concurrently.
+    opp_results = await asyncio.gather(
+        *(_build_opportunity(adapter, ev, legs, input_config) for ev, legs in eligible),
         return_exceptions=True,
     )
 
-    venue_markets: dict[str, list[dict]] = {}
-    for adapter, result in zip(adapters, raw_results):
-        if isinstance(result, Exception):
-            logger.warning(f"Venue {adapter.name} skipped: {result}")
-            venue_markets[adapter.name] = []
-        else:
-            venue_markets[adapter.name] = result
-            logger.info(f"Venue {adapter.name}: fetched {len(result)} normalized markets")
+    opportunities: list[Opportunity] = []
+    for r in opp_results:
+        if isinstance(r, Exception):
+            logger.warning(f"Opportunity build failed: {r}")
+        elif r is not None:
+            opportunities.append(r)
 
-    # Step 4: filter normalized markets
-    min_liquidity = int(input_config.get("min_liquidity_usd", 1000))
-    max_days = int(input_config.get("max_days_to_resolution", 90))
-
-    filtered: dict[str, list[dict]] = {}
-    for adapter in adapters:
-        all_markets = venue_markets[adapter.name]
-        binary_count = sum(1 for m in all_markets if m.get("is_binary"))
-        liq_pass = sum(
-            1 for m in all_markets
-            if m.get("is_binary") and m.get("liquidity_usd", 0) >= min_liquidity
-        )
-        filtered[adapter.name] = [
-            m for m in all_markets
-            if _passes_market_filter(m, min_liquidity, max_days)
-        ]
-        logger.info(
-            f"Venue {adapter.name}: {len(all_markets)} total → "
-            f"{binary_count} binary → {liq_pass} pass liquidity ≥{min_liquidity} → "
-            f"{len(filtered[adapter.name])} pass days ≤{max_days}"
-        )
-
-    # Step 5: match across venue pairs (only Polymarket ↔ Kalshi for v1)
-    total_pairs = 0
-    all_opportunities: list[Opportunity] = []
-
-    for i, adapter_a in enumerate(adapters):
-        markets_a = filtered[adapter_a.name]
-        if not markets_a:
-            continue
-
-        for adapter_b in adapters[i + 1:]:
-            markets_b = filtered[adapter_b.name]
-            if not markets_b:
-                continue
-
-            matches = match_markets(markets_a, markets_b, adapter_a.name, adapter_b.name)
-            total_pairs += len(matches)
-            logger.info(
-                f"Match {adapter_a.name}↔{adapter_b.name}: "
-                f"{len(markets_a)}×{len(markets_b)} = {len(markets_a)*len(markets_b)} candidate pairs → "
-                f"{len(matches)} passed all gates (binary, date≤30d, ≥2 shared entities, conf≥70)"
-            )
-            if not matches and markets_a and markets_b:
-                # Diagnostic: rank by *entity overlap on normalized titles*,
-                # not raw title score. Surfaces near-misses that the v2
-                # matcher is filtering, so we can see whether the entity
-                # gate or threshold is the blocker.
-                from rapidfuzz import fuzz as _fuzz
-
-                from .title_normalizer import extract_entities, normalize_title
-
-                top = []
-                # Pre-normalize to keep cost bounded.
-                norm_a = [(m, normalize_title(m.get("title", ""))) for m in markets_a[:200]]
-                norm_b = [(m, normalize_title(m.get("title", ""))) for m in markets_b[:200]]
-                for ma, na in norm_a:
-                    if not na:
-                        continue
-                    ea = extract_entities(na)
-                    if not ea:
-                        continue
-                    for mb, nb in norm_b:
-                        if not nb:
-                            continue
-                        eb = extract_entities(nb)
-                        if not eb:
-                            continue
-                        shared = ea & eb
-                        if not shared:
-                            continue
-                        title_sc = _fuzz.token_sort_ratio(na, nb)
-                        rank = len(shared) * 10 + title_sc / 10
-                        top.append((rank, len(shared), title_sc, sorted(shared),
-                                    ma.get("title", "")[:80], mb.get("title", "")[:80],
-                                    ma.get("resolution_date", ""), mb.get("resolution_date", "")))
-                top.sort(reverse=True)
-                logger.info("Top 5 near-miss pairs (ranked by shared entity count + normalized title score):")
-                for rank, n_shared, title_sc, shared, ta, tb, da, db in top[:5]:
-                    logger.info(f"  shared={n_shared} ({shared}) title_sc={title_sc:.0f}")
-                    logger.info(f"    A({da}): {ta!r}")
-                    logger.info(f"    B({db}): {tb!r}")
-
-            # Step 6: build opportunities concurrently
-            opp_results = await asyncio.gather(
-                *(_build_opportunity(p, adapter_a, adapter_b, input_config) for p in matches),
-                return_exceptions=True,
-            )
-
-            for r in opp_results:
-                if isinstance(r, Exception):
-                    logger.warning(f"Opportunity build failed: {r}")
-                elif r is not None:
-                    all_opportunities.append(r)
-
-    # Step 7+8: sort + cap
-    all_opportunities.sort(key=lambda o: o.signal_score, reverse=True)
+    opportunities.sort(key=lambda o: o.signal_score, reverse=True)
     output_limit = int(input_config.get("output_limit", 50))
-    all_opportunities = all_opportunities[:output_limit]
+    opportunities = opportunities[:output_limit]
 
-    summary = ScanSummary.from_opportunities(all_opportunities, total_pairs_scanned=total_pairs)
-    return all_opportunities, summary
+    summary = ScanSummary.from_opportunities(
+        opportunities,
+        total_events_scanned=len(normalized),
+        eligible_events=len(eligible),
+    )
+    return opportunities, summary

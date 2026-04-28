@@ -11,10 +11,6 @@ if str(_REPO_ROOT) not in sys.path:
 
 from src.core.scanner import run_scan  # noqa: E402
 
-# ---------------------------------------------------------------------------
-# Apify SDK with local-dev fallback so `python src/main.py` works without
-# the platform context (acceptance gate requirement).
-# ---------------------------------------------------------------------------
 try:
     from apify import Actor as _ApifyActor
     _APIFY_AVAILABLE = True
@@ -35,13 +31,14 @@ class _MockActor:
     log = _MockLog()
 
     _default_input = {
-        "mode": "scan-all",
-        "min_net_spread_pct": -3.0,
-        "min_signal_score": 50,
-        "min_liquidity_usd": 1000,
-        "liquidity_test_amount_usd": 500,
-        "max_days_to_resolution": 90,
-        "include_manifold": False,
+        "min_net_return_pct": -1.0,
+        "min_signal_score": 30,
+        "min_event_liquidity_usd": 5000,
+        "min_liquidity_per_leg_usd": 200,
+        "min_legs_per_event": 3,
+        "liquidity_test_amount_usd": 100,
+        "max_days_to_resolution": 365,
+        "max_events_to_scan": 1000,
         "output_limit": 50,
     }
 
@@ -73,7 +70,7 @@ async def main():
     async with actor:
         input_config = await actor.get_input() or {}
 
-        actor.log.info("Starting prediction market arbitrage scan...")
+        actor.log.info("Starting Polymarket multi-outcome arbitrage scan...")
         actor.log.info(f"Config: {input_config}")
 
         opportunities, summary = await run_scan(input_config)
