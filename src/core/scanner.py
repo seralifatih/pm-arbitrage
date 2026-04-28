@@ -107,6 +107,7 @@ async def _liquidity_check_legs(
     active_legs: list[dict],
     arb_type: str,
     test_usd_per_leg: int,
+    sem: asyncio.Semaphore,
 ) -> tuple[list[Optional[bool]], LiquidityCheck]:
     """Probe orderbook for each leg, return per-leg fillable + summary."""
     if arb_type == "buy_yes_basket":
@@ -116,8 +117,12 @@ async def _liquidity_check_legs(
         token_ids = [leg["no_token_id"] for leg in active_legs]
         side = "NO"
 
+    async def _fetch_one(tid: str):
+        async with sem:
+            return await adapter.fetch_orderbook(tid)
+
     books = await asyncio.gather(
-        *(adapter.fetch_orderbook(tid) for tid in token_ids),
+        *(_fetch_one(tid) for tid in token_ids),
         return_exceptions=True,
     )
 
@@ -171,6 +176,7 @@ async def _build_opportunity(
     event: dict,
     active_legs: list[dict],
     config: dict,
+    sem: asyncio.Semaphore,
 ) -> Optional[Opportunity]:
     arb = _compute_arb(event, active_legs, config)
     if arb is None:
@@ -182,7 +188,7 @@ async def _build_opportunity(
 
     test_usd = int(config.get("liquidity_test_amount_usd", 100))
     per_leg_fillable, liq_check = await _liquidity_check_legs(
-        adapter, active_legs, arb["arb_type"], test_usd,
+        adapter, active_legs, arb["arb_type"], test_usd, sem,
     )
 
     days = _days_to_resolution(event["resolution_date"])
@@ -266,9 +272,12 @@ async def run_scan(input_config: dict) -> tuple[list[Opportunity], ScanSummary]:
         f"leg liq ≥${min_liquidity_per_leg:,}, ≤{max_days}d to resolve)"
     )
 
-    # Build opportunities concurrently.
+    # Build opportunities. Bound HTTP concurrency to keep memory in check —
+    # 352 events × ~10 legs each = thousands of in-flight CLOB calls would OOM
+    # the 512MB Apify default container. Cap at 20 concurrent orderbook fetches.
+    sem = asyncio.Semaphore(20)
     opp_results = await asyncio.gather(
-        *(_build_opportunity(adapter, ev, legs, input_config) for ev, legs in eligible),
+        *(_build_opportunity(adapter, ev, legs, input_config, sem) for ev, legs in eligible),
         return_exceptions=True,
     )
 
