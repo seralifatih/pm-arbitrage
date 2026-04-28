@@ -230,7 +230,7 @@ async def run_scan(input_config: dict) -> tuple[list[Opportunity], ScanSummary]:
             logger.info(
                 f"Match {adapter_a.name}↔{adapter_b.name}: "
                 f"{len(markets_a)}×{len(markets_b)} = {len(markets_a)*len(markets_b)} candidate pairs → "
-                f"{len(matches)} passed all gates (binary, date≤3d, title≥60, conf≥70)"
+                f"{len(matches)} passed all gates (binary, date≤30d, ≥2 shared entities, conf≥70)"
             )
             if not matches and markets_a and markets_b:
                 # Diagnostic: log top 3 raw title-similarity scores so we can

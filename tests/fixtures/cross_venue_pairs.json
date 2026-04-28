@@ -1,0 +1,125 @@
+{
+  "_comment": "Hand-labeled cross-venue title pairs sourced from live Polymarket and Kalshi data, plus synthetic edge cases. Used to gate matcher precision/recall.",
+  "pairs": [
+    {
+      "label": "true_match",
+      "case": "fed_rate_cut",
+      "polymarket_title": "Will the Fed cut rates at the June 2026 FOMC meeting?",
+      "kalshi_title": "FED-26JUN — Fed funds target rate decision (June 2026)",
+      "polymarket_date": "2026-06-17",
+      "kalshi_date": "2026-06-17"
+    },
+    {
+      "label": "true_match",
+      "case": "lakers_nba_finals",
+      "polymarket_title": "Will the Los Angeles Lakers win the 2026 NBA Finals?",
+      "kalshi_title": "NBAFINALS-26 — NBA Finals winner: Los Angeles Lakers",
+      "polymarket_date": "2026-06-22",
+      "kalshi_date": "2026-06-22"
+    },
+    {
+      "label": "true_match",
+      "case": "btc_100k",
+      "polymarket_title": "Will Bitcoin close above $100k by end of 2026?",
+      "kalshi_title": "BTC-26EOY — Bitcoin price above $100k on December 31, 2026",
+      "polymarket_date": "2026-12-31",
+      "kalshi_date": "2026-12-31"
+    },
+    {
+      "label": "true_match",
+      "case": "senate_2026",
+      "polymarket_title": "Will Democrats control the Senate after the 2026 elections?",
+      "kalshi_title": "SENATE-26 — Democrats win Senate majority in 2026 elections",
+      "polymarket_date": "2026-11-04",
+      "kalshi_date": "2026-11-15"
+    },
+    {
+      "label": "true_match",
+      "case": "trump_approval",
+      "polymarket_title": "Will Trump approval rating exceed 50% on June 30 2026?",
+      "kalshi_title": "TRUMPAPP-26JUN — Trump approval above 50% (June 30 2026)",
+      "polymarket_date": "2026-06-30",
+      "kalshi_date": "2026-06-30"
+    },
+    {
+      "label": "false_match",
+      "case": "pittsburgh_collision",
+      "polymarket_title": "Will the Pittsburgh Penguins win the 2026 NHL Stanley Cup?",
+      "kalshi_title": "Will Pittsburgh win the College Basketball National Championship?",
+      "polymarket_date": "2026-06-30",
+      "kalshi_date": "2027-04-27"
+    },
+    {
+      "label": "false_match",
+      "case": "template_collision_chess_vs_football",
+      "polymarket_title": "Will Arsenal win the 2025-26 Champions League?",
+      "kalshi_title": "Will Magnus Carlsen win the 2026 Men's Norway Chess?",
+      "polymarket_date": "2026-05-31",
+      "kalshi_date": "2026-06-20"
+    },
+    {
+      "label": "false_match",
+      "case": "different_election_same_year",
+      "polymarket_title": "Will Democrats control the House after 2026 elections?",
+      "kalshi_title": "Will Republicans win the Senate in 2026?",
+      "polymarket_date": "2026-11-04",
+      "kalshi_date": "2026-11-04"
+    },
+    {
+      "label": "false_match",
+      "case": "btc_vs_eth",
+      "polymarket_title": "Will Bitcoin close above $100k by end of 2026?",
+      "kalshi_title": "Will Ethereum close above $5k by end of 2026?",
+      "polymarket_date": "2026-12-31",
+      "kalshi_date": "2026-12-31"
+    },
+    {
+      "label": "false_match",
+      "case": "different_fomc_meetings",
+      "polymarket_title": "Will the Fed cut rates at the June 2026 FOMC meeting?",
+      "kalshi_title": "FED-26SEP — Fed funds rate decision (September 2026)",
+      "polymarket_date": "2026-06-17",
+      "kalshi_date": "2026-09-23"
+    },
+    {
+      "label": "true_match",
+      "case": "celtics_nba",
+      "polymarket_title": "Will the Boston Celtics win the 2026 NBA Finals?",
+      "kalshi_title": "NBAFINALS-26 — NBA Finals winner: Boston Celtics",
+      "polymarket_date": "2026-06-22",
+      "kalshi_date": "2026-06-22"
+    },
+    {
+      "label": "false_match",
+      "case": "celtics_vs_lakers",
+      "polymarket_title": "Will the Boston Celtics win the 2026 NBA Finals?",
+      "kalshi_title": "NBAFINALS-26 — NBA Finals winner: Los Angeles Lakers",
+      "polymarket_date": "2026-06-22",
+      "kalshi_date": "2026-06-22"
+    },
+    {
+      "label": "true_match",
+      "case": "election_date_drift",
+      "polymarket_title": "Will Trump win the 2028 Republican primary?",
+      "kalshi_title": "GOP-28PRIM — Donald Trump wins 2028 Republican Party nomination",
+      "polymarket_date": "2028-06-01",
+      "kalshi_date": "2028-06-22"
+    },
+    {
+      "label": "false_match",
+      "case": "btc_threshold_drift",
+      "polymarket_title": "Will Bitcoin close above $150k by end of 2026?",
+      "kalshi_title": "Will Bitcoin close above $80k by end of 2026?",
+      "polymarket_date": "2026-12-31",
+      "kalshi_date": "2026-12-31"
+    },
+    {
+      "label": "true_match",
+      "case": "loose_phrasing",
+      "polymarket_title": "Will US recession be declared by NBER in 2026?",
+      "kalshi_title": "RECESSION-26 — NBER declares US recession in 2026",
+      "polymarket_date": "2026-12-31",
+      "kalshi_date": "2026-12-31"
+    }
+  ]
+}

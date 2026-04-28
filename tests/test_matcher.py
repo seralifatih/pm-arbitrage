@@ -30,16 +30,16 @@ def _market(
 
 class TestClearMatch:
     def test_high_confidence_on_similar_titles(self):
-        # Titles chosen to score >= 75 on token_sort_ratio
-        a = [_market("Will the Fed cut rates June 2025 FOMC?", "2025-06-18")]
-        b = [_market("Fed rate cut June 2025 FOMC?", "2025-06-18")]
+        # v2: titles need ≥2 shared distinguishing entities post-normalization.
+        a = [_market("Will the Lakers win the 2026 NBA Finals?", "2026-06-22")]
+        b = [_market("NBAFINALS-26 — NBA Finals winner: Los Angeles Lakers", "2026-06-22")]
         results = match_markets(a, b, "polymarket", "kalshi")
         assert len(results) == 1
-        assert results[0]["match_confidence"] >= 85
+        assert results[0]["match_confidence"] >= 70
 
     def test_result_has_required_keys(self):
-        a = [_market("Will the Fed cut rates June 2025?", "2025-06-18")]
-        b = [_market("Fed rate cut June 2025?", "2025-06-18")]
+        a = [_market("Will the Boston Celtics win the 2026 NBA Finals?", "2026-06-22")]
+        b = [_market("NBAFINALS-26 — NBA Finals winner: Boston Celtics", "2026-06-22")]
         results = match_markets(a, b, "polymarket", "kalshi")
         assert len(results) == 1
         r = results[0]
@@ -51,20 +51,20 @@ class TestClearMatch:
         assert r["venue_b_name"] == "kalshi"
 
     def test_date_diff_days_correct(self):
-        a = [_market("Fed rate cut June 2025?", "2025-06-18")]
-        b = [_market("Fed rate cut June 2025?", "2025-06-19")]
+        a = [_market("Will the Lakers win the 2026 NBA Finals?", "2026-06-22")]
+        b = [_market("NBAFINALS-26 — NBA Finals winner: Los Angeles Lakers", "2026-06-23")]
         results = match_markets(a, b, "polymarket", "kalshi")
         assert len(results) == 1
         assert results[0]["date_diff_days"] == 1
 
     def test_sorted_by_confidence_descending(self):
         a = [
-            _market("Will the Fed cut rates June 2025?", "2025-06-18", market_id="a1"),
-            _market("Will BTC hit 100k in 2025?", "2025-12-31", market_id="a2"),
+            _market("Will the Lakers win the 2026 NBA Finals?", "2026-06-22", market_id="a1"),
+            _market("Will Democrats control the Senate after the 2026 elections?", "2026-11-04", market_id="a2"),
         ]
         b = [
-            _market("Fed rate cut June 2025 FOMC", "2025-06-18", market_id="b1"),
-            _market("Bitcoin price above 100000 end of 2025?", "2025-12-31", market_id="b2"),
+            _market("NBAFINALS-26 — NBA Finals winner: Los Angeles Lakers", "2026-06-22", market_id="b1"),
+            _market("SENATE-26 — Democrats win Senate majority in 2026 elections", "2026-11-04", market_id="b2"),
         ]
         results = match_markets(a, b, "polymarket", "kalshi")
         confidences = [r["match_confidence"] for r in results]
@@ -76,24 +76,31 @@ class TestClearMatch:
 # ---------------------------------------------------------------------------
 
 class TestDateFilter:
-    def test_10_days_apart_excluded(self):
-        a = [_market("Will the Fed cut rates June 2025?", "2025-06-18")]
-        b = [_market("Fed rate cut June 2025 FOMC?", "2025-06-28")]
-        results = match_markets(a, b, "polymarket", "kalshi")
-        assert results == []
+    # Use richer cross-venue titles that survive v2 entity gate.
+    _A_TITLE = "Will the Lakers win the 2026 NBA Finals?"
+    _B_TITLE = "NBAFINALS-26 — NBA Finals winner: Los Angeles Lakers"
+
+    def test_45_days_apart_excluded(self):
+        # v2: window widened to 30d. 45d is outside the window.
+        a = [_market(self._A_TITLE, "2026-06-22")]
+        b = [_market(self._B_TITLE, "2026-08-06")]
+        assert match_markets(a, b, "polymarket", "kalshi") == []
 
     def test_exactly_3_days_included(self):
-        # Identical titles so only date proximity affects pass/fail
-        a = [_market("Fed rate cut June 2025 FOMC?", "2025-06-18")]
-        b = [_market("Fed rate cut June 2025 FOMC?", "2025-06-21")]
-        results = match_markets(a, b, "polymarket", "kalshi")
-        assert len(results) == 1
+        a = [_market(self._A_TITLE, "2026-06-22")]
+        b = [_market(self._B_TITLE, "2026-06-25")]
+        assert len(match_markets(a, b, "polymarket", "kalshi")) == 1
 
-    def test_4_days_excluded(self):
-        a = [_market("Will the Fed cut rates June 2025?", "2025-06-18")]
-        b = [_market("Fed rate cut June 2025 FOMC?", "2025-06-22")]
-        results = match_markets(a, b, "polymarket", "kalshi")
-        assert results == []
+    def test_within_30_day_window_included(self):
+        # v2: ~1 week drift between venues should match comfortably.
+        a = [_market(self._A_TITLE, "2026-06-22")]
+        b = [_market(self._B_TITLE, "2026-06-29")]  # 7d
+        assert len(match_markets(a, b, "polymarket", "kalshi")) == 1
+
+    def test_31_days_excluded(self):
+        a = [_market(self._A_TITLE, "2026-06-22")]
+        b = [_market(self._B_TITLE, "2026-07-23")]
+        assert match_markets(a, b, "polymarket", "kalshi") == []
 
 
 # ---------------------------------------------------------------------------
@@ -187,8 +194,8 @@ class TestEdgeCases:
         assert results == []
 
     def test_min_confidence_override(self):
-        a = [_market("Will the Fed cut rates June 2025?", "2025-06-18")]
-        b = [_market("Fed rate cut June 2025 FOMC?", "2025-06-18")]
+        a = [_market("Will the Lakers win the 2026 NBA Finals?", "2026-06-22")]
+        b = [_market("NBAFINALS-26 — NBA Finals winner: Los Angeles Lakers", "2026-06-22")]
         # Default min=70 should include it
         results = match_markets(a, b, "polymarket", "kalshi", min_confidence=70)
         assert len(results) == 1
