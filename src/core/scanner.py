@@ -187,6 +187,7 @@ async def run_scan(input_config: dict) -> tuple[list[Opportunity], ScanSummary]:
             venue_markets[adapter.name] = []
         else:
             venue_markets[adapter.name] = result
+            logger.info(f"Venue {adapter.name}: fetched {len(result)} normalized markets")
 
     # Step 4: filter normalized markets
     min_liquidity = int(input_config.get("min_liquidity_usd", 1000))
@@ -194,10 +195,21 @@ async def run_scan(input_config: dict) -> tuple[list[Opportunity], ScanSummary]:
 
     filtered: dict[str, list[dict]] = {}
     for adapter in adapters:
+        all_markets = venue_markets[adapter.name]
+        binary_count = sum(1 for m in all_markets if m.get("is_binary"))
+        liq_pass = sum(
+            1 for m in all_markets
+            if m.get("is_binary") and m.get("liquidity_usd", 0) >= min_liquidity
+        )
         filtered[adapter.name] = [
-            m for m in venue_markets[adapter.name]
+            m for m in all_markets
             if _passes_market_filter(m, min_liquidity, max_days)
         ]
+        logger.info(
+            f"Venue {adapter.name}: {len(all_markets)} total → "
+            f"{binary_count} binary → {liq_pass} pass liquidity ≥{min_liquidity} → "
+            f"{len(filtered[adapter.name])} pass days ≤{max_days}"
+        )
 
     # Step 5: match across venue pairs (only Polymarket ↔ Kalshi for v1)
     total_pairs = 0
@@ -215,6 +227,25 @@ async def run_scan(input_config: dict) -> tuple[list[Opportunity], ScanSummary]:
 
             matches = match_markets(markets_a, markets_b, adapter_a.name, adapter_b.name)
             total_pairs += len(matches)
+            logger.info(
+                f"Match {adapter_a.name}↔{adapter_b.name}: "
+                f"{len(markets_a)}×{len(markets_b)} = {len(markets_a)*len(markets_b)} candidate pairs → "
+                f"{len(matches)} passed all gates (binary, date≤3d, title≥60, conf≥70)"
+            )
+            if not matches and markets_a and markets_b:
+                # Diagnostic: log top 3 raw title-similarity scores so we can
+                # see whether titles, dates, or entity-overlap is the blocker.
+                from rapidfuzz import fuzz as _fuzz
+                top = []
+                for ma in markets_a[:100]:
+                    for mb in markets_b[:100]:
+                        sc = _fuzz.token_sort_ratio(ma.get("title", ""), mb.get("title", ""))
+                        top.append((sc, ma.get("title", "")[:60], mb.get("title", "")[:60],
+                                    ma.get("resolution_date", ""), mb.get("resolution_date", "")))
+                top.sort(reverse=True)
+                logger.info(f"Top 3 cross-venue title scores (no matches passed):")
+                for sc, ta, tb, da, db in top[:3]:
+                    logger.info(f"  score={sc} | A({da}): {ta!r} | B({db}): {tb!r}")
 
             # Step 6: build opportunities concurrently
             opp_results = await asyncio.gather(
