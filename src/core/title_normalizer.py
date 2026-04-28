@@ -114,6 +114,10 @@ _ENTITY_STOPWORDS = frozenset({
     "race", "match", "game",
     "championship", "championships",
     "season", "playoffs",
+    # Election structure words. "election"/"presidential" alone aren't
+    # entity-distinguishing — the country/year + candidate names are.
+    "election", "elections", "presidential",
+    "round", "first", "second", "third", "1st", "2nd", "3rd",
 })
 
 # Numbers and currency thresholds (e.g. "100k", "$3000", "5.25", "2026").
