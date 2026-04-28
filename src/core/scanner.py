@@ -233,19 +233,44 @@ async def run_scan(input_config: dict) -> tuple[list[Opportunity], ScanSummary]:
                 f"{len(matches)} passed all gates (binary, date≤30d, ≥2 shared entities, conf≥70)"
             )
             if not matches and markets_a and markets_b:
-                # Diagnostic: log top 3 raw title-similarity scores so we can
-                # see whether titles, dates, or entity-overlap is the blocker.
+                # Diagnostic: rank by *entity overlap on normalized titles*,
+                # not raw title score. Surfaces near-misses that the v2
+                # matcher is filtering, so we can see whether the entity
+                # gate or threshold is the blocker.
                 from rapidfuzz import fuzz as _fuzz
+
+                from .title_normalizer import extract_entities, normalize_title
+
                 top = []
-                for ma in markets_a[:100]:
-                    for mb in markets_b[:100]:
-                        sc = _fuzz.token_sort_ratio(ma.get("title", ""), mb.get("title", ""))
-                        top.append((sc, ma.get("title", "")[:60], mb.get("title", "")[:60],
+                # Pre-normalize to keep cost bounded.
+                norm_a = [(m, normalize_title(m.get("title", ""))) for m in markets_a[:200]]
+                norm_b = [(m, normalize_title(m.get("title", ""))) for m in markets_b[:200]]
+                for ma, na in norm_a:
+                    if not na:
+                        continue
+                    ea = extract_entities(na)
+                    if not ea:
+                        continue
+                    for mb, nb in norm_b:
+                        if not nb:
+                            continue
+                        eb = extract_entities(nb)
+                        if not eb:
+                            continue
+                        shared = ea & eb
+                        if not shared:
+                            continue
+                        title_sc = _fuzz.token_sort_ratio(na, nb)
+                        rank = len(shared) * 10 + title_sc / 10
+                        top.append((rank, len(shared), title_sc, sorted(shared),
+                                    ma.get("title", "")[:80], mb.get("title", "")[:80],
                                     ma.get("resolution_date", ""), mb.get("resolution_date", "")))
                 top.sort(reverse=True)
-                logger.info(f"Top 3 cross-venue title scores (no matches passed):")
-                for sc, ta, tb, da, db in top[:3]:
-                    logger.info(f"  score={sc} | A({da}): {ta!r} | B({db}): {tb!r}")
+                logger.info("Top 5 near-miss pairs (ranked by shared entity count + normalized title score):")
+                for rank, n_shared, title_sc, shared, ta, tb, da, db in top[:5]:
+                    logger.info(f"  shared={n_shared} ({shared}) title_sc={title_sc:.0f}")
+                    logger.info(f"    A({da}): {ta!r}")
+                    logger.info(f"    B({db}): {tb!r}")
 
             # Step 6: build opportunities concurrently
             opp_results = await asyncio.gather(
