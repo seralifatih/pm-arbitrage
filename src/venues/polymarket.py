@@ -26,28 +26,32 @@ class PolymarketAdapter(VenueAdapter):
     name = "polymarket"
 
     async def fetch_open_markets(self) -> list[dict]:
-        markets = []
-        next_cursor = None
+        # Polymarket Gamma `/markets` returns a flat array, no cursor field.
+        # Pagination is offset-based. Cap at 5000 to bound runtime;
+        # past that the markets are usually low-liquidity long-tail.
+        markets: list[dict] = []
+        page_size = 500
+        max_markets = 5000
 
         async with httpx.AsyncClient(timeout=10) as client:
-            while True:
-                params: dict = {"closed": "false", "limit": 500}
-                if next_cursor:
-                    params["next_cursor"] = next_cursor
-
+            for offset in range(0, max_markets, page_size):
+                params: dict = {
+                    "closed": "false",
+                    "limit": page_size,
+                    "offset": offset,
+                }
                 resp = await client.get(f"{_GAMMA_URL}/markets", params=params)
                 resp.raise_for_status()
                 data = resp.json()
 
-                # API may return a list or a paginated envelope
-                if isinstance(data, list):
-                    markets.extend(data)
+                page = data if isinstance(data, list) else data.get("markets", data.get("data", []))
+                if not page:
                     break
-                else:
-                    markets.extend(data.get("markets", data.get("data", [])))
-                    next_cursor = data.get("next_cursor")
-                    if not next_cursor:
-                        break
+                markets.extend(page)
+
+                # Last page reached
+                if len(page) < page_size:
+                    break
 
         return markets
 

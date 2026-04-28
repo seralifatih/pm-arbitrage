@@ -76,16 +76,16 @@ def match_markets(
             if diff_days > 3:
                 continue
 
-            # Step 3: title similarity
-            # Threshold relaxed 75 → 60 for v1 because Polymarket's "Will X..."
-            # phrasing diverges sharply from Kalshi's structured ticker titles
-            # on identical events (live data: real matches score ~55–70).
-            # Entity overlap + date window remain as additional gates.
+            # Step 3: title similarity. Restored to 75 after live data showed
+            # threshold of 60 produced false positives — both venues use the
+            # "Will X win Y?" template heavily, and unrelated events
+            # (Arsenal CL vs Carlsen chess) score 60+ on the template alone.
+            # Real cross-venue matching needs the v2 normalizer (Prompt 13).
             title_a = ma.get("title", "")
             title_b = mb.get("title", "")
             title_score = fuzz.token_sort_ratio(title_a, title_b)
 
-            if title_score < 60:
+            if title_score < 75:
                 continue
 
             # Step 4: entity overlap
