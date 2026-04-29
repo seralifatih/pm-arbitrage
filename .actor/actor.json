@@ -7,5 +7,6 @@
   "title": "Polymarket Multi-Outcome Arbitrage Scanner",
   "description": "Finds events where mutually-exclusive YES prices sum ≠ 1.0. Concrete arithmetic arbitrage with fee-adjusted returns and per-leg liquidity tests.",
   "categories": ["finance", "developer-tools"],
-  "input": "./input_schema.json"
+  "input": "./input_schema.json",
+  "output": "./output_schema.json"
 }

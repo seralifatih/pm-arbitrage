@@ -1,0 +1,19 @@
+{
+  "actorOutputSchemaVersion": 1,
+  "title": "Output schema for the Polymarket Multi-Outcome Arbitrage Scanner",
+  "description": "Two outputs: a dataset of confidence-scored basket arbitrage opportunities and a key-value record summarizing the scan.",
+  "properties": {
+    "opportunities": {
+      "type": "string",
+      "title": "Arbitrage opportunities",
+      "description": "Dataset of detected basket arbitrage opportunities. Each item is one Polymarket event with leg-by-leg basket composition, fee-adjusted return, per-leg fillability, signal score, and event classification (winner_take_all or top_k).",
+      "template": "{{links.apiDefaultDatasetUrl}}/items"
+    },
+    "summary": {
+      "type": "string",
+      "title": "Scan summary",
+      "description": "Single key-value record summarizing the scan: timestamp, total events scanned, eligible event count, pure arb count, EV+ count, average net return, and best opportunity ID.",
+      "template": "{{links.apiDefaultKeyValueStoreUrl}}/records/OUTPUT_SUMMARY"
+    }
+  }
+}
