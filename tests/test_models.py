@@ -32,6 +32,8 @@ def _opp(net=2.0, score=85, label="Pure arbitrage", id_suffix="") -> Opportunity
         event_title="Test Event",
         event_url="https://polymarket.com/event/test",
         resolution_date="2026-12-31",
+        event_type="winner_take_all",
+        expected_sum_yes=1.0,
         arb_type="buy_yes_basket",
         leg_count=3,
         sum_yes_price=0.92,

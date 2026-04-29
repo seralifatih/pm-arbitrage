@@ -45,10 +45,12 @@ class Opportunity(BaseModel):
     event_title: str
     event_url: str
     resolution_date: str        # ISO date of the latest child resolution
+    event_type: str             # "winner_take_all" | "top_k"
+    expected_sum_yes: float     # 1.0 for WTA, K for top-K (the value Σ YES *should* be)
     arb_type: str               # "buy_yes_basket" | "buy_no_basket"
     leg_count: int
-    sum_yes_price: float        # raw sum BEFORE fees, for transparency
-    deviation_from_one: float   # sum_yes - 1.0 (negative = underpriced; positive = overpriced)
+    sum_yes_price: float        # observed Σ YES BEFORE fees
+    deviation_from_one: float   # sum_yes - expected_sum_yes (kept for back-compat name)
     fees_pct: float             # round-trip fee drag for the basket
     gross_return_pct: float     # before fees
     net_return_pct: float       # after fees, the headline number

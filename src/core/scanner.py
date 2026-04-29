@@ -29,6 +29,7 @@ from typing import Optional
 from ..utils.fees import FEE_POLYMARKET
 from ..utils.logger import logger
 from ..venues.polymarket import PolymarketAdapter
+from .event_classifier import EventType, classify_event
 from .models import LiquidityCheck, Opportunity, OutcomeLeg, ScanSummary
 from .scorer import score_opportunity
 
@@ -63,37 +64,46 @@ def _filter_active_legs(legs: list[dict], min_liquidity_per_leg: int) -> list[di
 def _compute_arb(
     event: dict,
     active_legs: list[dict],
+    expected_sum: float,
     config: dict,
 ) -> Optional[dict]:
-    """Compute the best-direction arb on this event's active legs.
+    """Compute the best-direction arb against the expected Σ YES.
 
-    Returns a dict with all economics, or None if no edge exists.
+    expected_sum:
+      - 1.0 for winner-take-all events (Σ YES of N exclusive legs must = 1)
+      - K   for top-K events (exactly K of N legs resolve YES)
+
+    Returns dict with full economics, or None if no edge exists.
     """
     sum_yes = sum(leg["yes_price"] for leg in active_legs)
     n = len(active_legs)
-    deviation = round(sum_yes - 1.0, 4)
-
-    # We use ROUND_TRIP_FEE_PCT as the fee drag to be conservative.
+    deviation = round(sum_yes - expected_sum, 4)
     fees_pct = ROUND_TRIP_FEE_PCT
 
-    if sum_yes < 1.0:
+    if sum_yes < expected_sum:
         # BUY-YES-BASKET arb
-        gross_return_pct = round((1.0 - sum_yes) / sum_yes * 100, 4)
+        # Cost: sum_yes dollars per share. Guaranteed payout: expected_sum dollars
+        # (since exactly K=expected_sum of the legs resolve YES → K * $1).
+        gross_return_pct = round((expected_sum - sum_yes) / sum_yes * 100, 4)
         net_return_pct = round(gross_return_pct - fees_pct, 4)
         arb_type = "buy_yes_basket"
     else:
         # BUY-NO-BASKET arb
-        # NO basket cost = N - sum_yes;  guaranteed payout = N - 1
+        # NO basket cost: N - sum_yes; guaranteed payout: N - expected_sum
+        # (legs that DON'T resolve YES → NO_i pays $1 each → (N - K) of them).
         no_basket_cost = n - sum_yes
-        if no_basket_cost <= 0:
-            return None  # degenerate
-        gross_return_pct = round((sum_yes - 1.0) / no_basket_cost * 100, 4)
+        no_basket_payout = n - expected_sum
+        if no_basket_cost <= 0 or no_basket_payout <= 0:
+            return None
+        gross_return_pct = round(
+            (no_basket_payout - no_basket_cost) / no_basket_cost * 100, 4
+        )
         net_return_pct = round(gross_return_pct - fees_pct, 4)
         arb_type = "buy_no_basket"
 
     return {
         "sum_yes_price": round(sum_yes, 4),
-        "deviation_from_one": deviation,
+        "deviation_from_one": deviation,  # name kept for back-compat, semantics: deviation from expected
         "leg_count": n,
         "arb_type": arb_type,
         "gross_return_pct": gross_return_pct,
@@ -178,7 +188,21 @@ async def _build_opportunity(
     config: dict,
     sem: asyncio.Semaphore,
 ) -> Optional[Opportunity]:
-    arb = _compute_arb(event, active_legs, config)
+    # Step 1: classify the event structure. Only winner-take-all and top-K
+    # support arithmetic arbitrage. Cumulative/ladder/independent events
+    # have no Σ YES constraint and produce false positives.
+    leg_questions = [leg["question"] for leg in active_legs]
+    leg_labels = [leg["outcome_label"] for leg in active_legs]
+    event_type, expected_sum = classify_event(event["title"], leg_questions, leg_labels)
+    if event_type == EventType.NOT_ARB or expected_sum is None:
+        return None
+
+    # Step 2: top-K events need at least K+1 legs to have an arb opportunity
+    # (otherwise the expected sum trivially equals the leg count).
+    if event_type == EventType.TOP_K and len(active_legs) <= int(expected_sum):
+        return None
+
+    arb = _compute_arb(event, active_legs, expected_sum, config)
     if arb is None:
         return None
 
@@ -223,6 +247,8 @@ async def _build_opportunity(
         event_title=event["title"],
         event_url=event["event_url"],
         resolution_date=event["resolution_date"],
+        event_type=event_type.value,
+        expected_sum_yes=round(expected_sum, 4),
         arb_type=arb["arb_type"],
         leg_count=arb["leg_count"],
         sum_yes_price=arb["sum_yes_price"],

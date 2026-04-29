@@ -29,10 +29,14 @@ def _leg(label: str, yes: float, liquidity: int = 5000) -> dict:
     }
 
 
-def _event(legs: list[dict], event_liq: int = 50000) -> dict:
+def _event(legs: list[dict], event_liq: int = 50000, title: str = "2028 Democratic Nominee") -> dict:
+    """Default title is winner-take-all so classifier accepts it.
+
+    Tests that need a NOT_ARB or top-K event override the title.
+    """
     return {
         "id": "evt-1",
-        "title": "Test Multi-Outcome Event",
+        "title": title,
         "slug": "test-event",
         "event_url": "https://polymarket.com/event/test-event",
         "volume_usd": 1_000_000,
@@ -72,32 +76,48 @@ class TestActiveLegFilter:
 # ---------------------------------------------------------------------------
 
 class TestComputeArb:
-    def test_buy_yes_basket_when_sum_below_one(self):
-        # Σ YES = 0.85; buying basket costs $0.85 to guarantee $1 payout
+    def test_buy_yes_basket_when_sum_below_expected(self):
+        # WTA: expected = 1.0. Σ YES = 0.85; buying basket costs $0.85 → $1 payout
         legs = [_leg("A", 0.30), _leg("B", 0.30), _leg("C", 0.25)]
-        arb = _compute_arb(_event(legs), legs, {})
+        arb = _compute_arb(_event(legs), legs, expected_sum=1.0, config={})
         assert arb["arb_type"] == "buy_yes_basket"
         assert arb["sum_yes_price"] == 0.85
         # Gross = (1 - 0.85) / 0.85 = 17.65%; net = 17.65 - 4 = 13.65
         assert arb["gross_return_pct"] == pytest.approx(17.6471, rel=1e-3)
         assert arb["net_return_pct"] == pytest.approx(13.6471, rel=1e-3)
 
-    def test_buy_no_basket_when_sum_above_one(self):
-        # Σ YES = 1.15; sell side via NO basket
+    def test_buy_no_basket_when_sum_above_expected(self):
+        # WTA: expected = 1.0. Σ YES = 1.15; sell side via NO basket
         legs = [_leg("A", 0.45), _leg("B", 0.40), _leg("C", 0.30)]
-        arb = _compute_arb(_event(legs), legs, {})
+        arb = _compute_arb(_event(legs), legs, expected_sum=1.0, config={})
         assert arb["arb_type"] == "buy_no_basket"
-        # NO cost = 3 - 1.15 = 1.85, payout N-1 = 2 → gross = (2 - 1.85)/1.85
+        # NO cost = 3 - 1.15 = 1.85; payout = 3 - 1 = 2; gross = (2 - 1.85)/1.85
         assert arb["gross_return_pct"] == pytest.approx(8.1081, rel=1e-3)
 
-    def test_sum_exactly_one_yields_zero_return(self):
+    def test_sum_exactly_expected_yields_zero_return(self):
         legs = [_leg("A", 0.5), _leg("B", 0.5)]
-        arb = _compute_arb(_event(legs), legs, {})
+        arb = _compute_arb(_event(legs), legs, expected_sum=1.0, config={})
         assert arb["gross_return_pct"] == 0.0
+
+    def test_top_k_with_underpriced_basket(self):
+        # K=2 (e.g. reach-the-final). 4 teams, Σ YES = 1.6 → underpriced vs expected 2.0
+        legs = [_leg("A", 0.45), _leg("B", 0.40), _leg("C", 0.40), _leg("D", 0.35)]
+        arb = _compute_arb(_event(legs), legs, expected_sum=2.0, config={})
+        assert arb["arb_type"] == "buy_yes_basket"
+        # Gross = (2.0 - 1.6) / 1.6 = 25%
+        assert arb["gross_return_pct"] == pytest.approx(25.0, rel=1e-3)
+
+    def test_top_k_with_overpriced_basket(self):
+        # K=2, 4 legs, Σ YES = 2.4 → overpriced; NO basket cost = 4 - 2.4 = 1.6,
+        # NO payout = 4 - 2 = 2; gross = (2 - 1.6) / 1.6 = 25%
+        legs = [_leg("A", 0.7), _leg("B", 0.7), _leg("C", 0.6), _leg("D", 0.4)]
+        arb = _compute_arb(_event(legs), legs, expected_sum=2.0, config={})
+        assert arb["arb_type"] == "buy_no_basket"
+        assert arb["gross_return_pct"] == pytest.approx(25.0, rel=1e-3)
 
     def test_deviation_field_signed(self):
         legs = [_leg("A", 0.3), _leg("B", 0.3)]
-        arb = _compute_arb(_event(legs), legs, {})
+        arb = _compute_arb(_event(legs), legs, expected_sum=1.0, config={})
         # 0.6 - 1.0 = -0.4
         assert arb["deviation_from_one"] == pytest.approx(-0.4)
 
@@ -127,7 +147,9 @@ class TestRunScan:
 
         assert len(opps) == 1
         opp = opps[0]
-        assert opp.event_title == "Test Multi-Outcome Event"
+        assert opp.event_title == "2028 Democratic Nominee"
+        assert opp.event_type == "winner_take_all"
+        assert opp.expected_sum_yes == 1.0
         assert opp.arb_type == "buy_yes_basket"
         assert opp.leg_count == 3
         assert summary.eligible_events == 1
