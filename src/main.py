@@ -58,9 +58,6 @@ class _MockActor:
         print(f"[MockActor] set_value '{key}':")
         print(json.dumps(value, indent=2, default=str))
 
-    async def charge(self, event_name: str, count: int = 1):
-        print(f"[MockActor] charge '{event_name}' x{count}")
-
 
 def _get_actor():
     if _APIFY_AVAILABLE and os.environ.get("APIFY_IS_AT_HOME"):
@@ -68,17 +65,11 @@ def _get_actor():
     return _MockActor()
 
 
-async def _safe_charge(actor, event_name: str, count: int = 1) -> None:
-    """Call Actor.charge if available; never let billing break a scan."""
-    if count <= 0:
-        return
-    try:
-        await actor.charge(event_name, count)
-    except Exception as exc:
-        actor.log.warning(f"Charge for '{event_name}' x{count} failed: {exc}")
-
-
 async def main():
+    # Apify monetization events:
+    #   apify-actor-start       — auto-billed once per run on Actor entry
+    #   apify-default-dataset-item — auto-billed per Actor.push_data() item
+    # No manual Actor.charge() calls needed; both fire automatically.
     actor = _get_actor()
     async with actor:
         input_config = await actor.get_input() or {}
@@ -92,14 +83,8 @@ async def main():
 
         if opportunities:
             await actor.push_data([opp.model_dump() for opp in opportunities])
-            # Bill one event per opportunity returned to the dataset.
-            await _safe_charge(actor, "opportunity_returned", len(opportunities))
 
         await actor.set_value("OUTPUT_SUMMARY", summary.model_dump())
-
-        # Bill one event per successful scan, regardless of result count.
-        # Charged last so partial-failure runs don't get billed for the run fee.
-        await _safe_charge(actor, "scan_completed", 1)
 
         actor.log.info(f"Summary: {summary.model_dump()}")
 
